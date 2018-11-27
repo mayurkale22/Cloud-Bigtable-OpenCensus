@@ -38,7 +38,7 @@ public class HelloWorld {
 
   // Write some friendly greetings to Cloud Bigtable
   private static final String[] GREETINGS =
-    { "Hello World!", "Hello Cloud Bigtable!", "Hello HBase!" };
+    { "Hello!", "Hello Cloud Bigtable!", "Hello HBase!", "mayurkale!", "asdfasdfsd!", "abc" };
 
   /**
    * Connects to Cloud Bigtable, runs some basic operations and prints the results.
@@ -131,15 +131,13 @@ public class HelloWorld {
 
   public static void main(String[] args) throws InterruptedException, IOException {
     // Consult system properties to get project/instance
-    String projectId = "opencensus-java-stats-demo-app";
-    String instanceId = "oc-metrics";
-
-
+    String projectId = "xxx";
+    String instanceId = "yyy";
     enableOpenCensusObservability();
 
     doHelloWorld(projectId, instanceId);
 
-    Thread.sleep(10000);
+    Thread.sleep(30000);
   }
 
   private static void enableOpenCensusObservability() throws IOException {
