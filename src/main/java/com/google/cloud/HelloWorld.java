@@ -2,13 +2,14 @@ package com.google.cloud;
 
 import com.codahale.metrics.ConsoleReporter;
 import com.google.cloud.bigtable.hbase.BigtableConfiguration;
-
 import com.google.cloud.bigtable.metrics.BigtableClientMetrics;
 import com.google.cloud.bigtable.metrics.DropwizardMetricRegistry;
+import io.opencensus.common.Duration;
 import io.opencensus.contrib.dropwizard.DropWizardMetrics;
-import io.opencensus.exporter.stats.prometheus.PrometheusStatsCollector;
+import io.opencensus.exporter.stats.stackdriver.StackdriverStatsConfiguration;
+import io.opencensus.exporter.stats.stackdriver.StackdriverStatsExporter;
 import io.opencensus.metrics.Metrics;
-import io.prometheus.client.exporter.HTTPServer;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 import org.apache.hadoop.hbase.HColumnDescriptor;
@@ -23,8 +24,6 @@ import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.util.Bytes;
-
-import java.io.IOException;
 
 /**
  * A minimal application that connects to Cloud Bigtable using the native HBase API
@@ -132,8 +131,8 @@ public class HelloWorld {
 
   public static void main(String[] args) throws InterruptedException, IOException {
     // Consult system properties to get project/instance
-    String projectId = "xxx";
-    String instanceId = "yyy";
+    String projectId = "opencensus-java-stats-demo-app";
+    String instanceId = "oc-metrics";
 
 
     enableOpenCensusObservability();
@@ -150,18 +149,15 @@ public class HelloWorld {
       .convertRatesTo(TimeUnit.SECONDS)
       .convertDurationsTo(TimeUnit.MILLISECONDS)
       .build();
-    reporter.start(1, TimeUnit.MINUTES);
+    reporter.start(10, TimeUnit.SECONDS);
 
     BigtableClientMetrics.setMetricRegistry(registry);
 
     Metrics.getExportComponent().getMetricProducerManager().add(
       new DropWizardMetrics(Collections.singletonList(registry.getRegistry())));
 
-    // Register the Prometheus exporter
-    PrometheusStatsCollector.createAndRegister();
-
-    // Run the server as a daemon on address "localhost:8888"
-    HTTPServer server = new HTTPServer("localhost", 8888, true);
+    StackdriverStatsExporter.createAndRegister(StackdriverStatsConfiguration.builder().setExportInterval(
+      Duration.create(10, 0)).build());
 
   }
 
