@@ -48,6 +48,12 @@
 
     <dependency>
       <groupId>io.opencensus</groupId>
+      <artifactId>opencensus-exporter-trace-stackdriver</artifactId>
+      <version>${opencensus.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>io.opencensus</groupId>
       <artifactId>opencensus-api</artifactId>
       <version>${opencensus.version}</version>
     </dependency>
@@ -63,6 +69,12 @@
       <groupId>io.prometheus</groupId>
       <artifactId>simpleclient_httpserver</artifactId>
       <version>0.3.0</version>
+    </dependency>
+
+    <dependency>
+      <groupId>io.opencensus</groupId>
+      <artifactId>opencensus-contrib-grpc-metrics</artifactId>
+      <version>${opencensus.version}</version>
     </dependency>
 
     <dependency>

@@ -4,13 +4,12 @@ import com.codahale.metrics.ConsoleReporter;
 import com.google.cloud.bigtable.hbase.BigtableConfiguration;
 import com.google.cloud.bigtable.metrics.BigtableClientMetrics;
 import com.google.cloud.bigtable.metrics.DropwizardMetricRegistry;
-import io.opencensus.common.Duration;
 import io.opencensus.contrib.dropwizard.DropWizardMetrics;
-import io.opencensus.exporter.stats.stackdriver.StackdriverStatsConfiguration;
 import io.opencensus.exporter.stats.stackdriver.StackdriverStatsExporter;
 import io.opencensus.metrics.Metrics;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HTableDescriptor;
@@ -29,8 +28,9 @@ import org.apache.hadoop.hbase.util.Bytes;
  * A minimal application that connects to Cloud Bigtable using the native HBase API
  * and performs some basic operations.
  */
-public class HelloWorld {
-
+public class BigtableDropwizard {
+  private static final String PROJECT_ID = "xxxx";
+  private static final String INSTANCE_ID = "yyyy";
   // Refer to table metadata names by byte array in the HBase API
   private static final byte[] TABLE_NAME = Bytes.toBytes("Hello-Bigtable");
   private static final byte[] COLUMN_FAMILY_NAME = Bytes.toBytes("cf1");
@@ -38,12 +38,13 @@ public class HelloWorld {
 
   // Write some friendly greetings to Cloud Bigtable
   private static final String[] GREETINGS =
-    { "Hello!", "Hello Cloud Bigtable!", "Hello HBase!", "mayurkale!", "asdfasdfsd!", "abc" };
+    { "Hello!", "Hello Cloud Bigtable!", "Hello HBase!"};
 
   /**
    * Connects to Cloud Bigtable, runs some basic operations and prints the results.
    */
-  private static void doHelloWorld(String projectId, String instanceId) {
+  private static void doHelloWorld(String projectId, String instanceId)
+    throws InterruptedException {
 
     // [START connecting_to_bigtable]
     // Create the Bigtable connection, use try-with-resources to make sure it gets closed
@@ -59,7 +60,7 @@ public class HelloWorld {
       descriptor.addFamily(new HColumnDescriptor(COLUMN_FAMILY_NAME));
 
       print("Create table " + descriptor.getNameAsString());
-      admin.createTable(descriptor);
+      //admin.createTable(descriptor);
       // [END creating_a_table]
 
       // [START writing_rows]
@@ -68,7 +69,7 @@ public class HelloWorld {
 
       // Write some rows to the table
       print("Write some greetings to the table");
-      for (int i = 0; i < GREETINGS.length; i++) {
+      for (int i = 0; i < 1000000; i++) {
         // Each row has a unique row key.
         //
         // Note: This example uses sequential numeric IDs for simplicity, but
@@ -84,8 +85,10 @@ public class HelloWorld {
 
         // Put a single row into the table. We could also pass a list of Puts to write a batch.
         Put put = new Put(Bytes.toBytes(rowKey));
-        put.addColumn(COLUMN_FAMILY_NAME, COLUMN_NAME, Bytes.toBytes(GREETINGS[i]));
+        put.addColumn(COLUMN_FAMILY_NAME, COLUMN_NAME, Bytes.toBytes(GREETINGS[i % 3]));
         table.put(put);
+
+        Thread.sleep(100 * new Random().nextInt(15));
       }
       // [END writing_rows]
 
@@ -118,7 +121,7 @@ public class HelloWorld {
       // [END deleting_a_table]
 
     } catch (IOException e) {
-      System.err.println("Exception while running HelloWorld: " + e.getMessage());
+      System.err.println("Exception while running BigtableDropwizard: " + e.getMessage());
       e.printStackTrace();
       System.exit(1);
     }
@@ -126,16 +129,13 @@ public class HelloWorld {
   }
 
   private static void print(String msg) {
-    System.out.println("HelloWorld: " + msg);
+    System.out.println("BigtableDropwizard: " + msg);
   }
 
   public static void main(String[] args) throws InterruptedException, IOException {
-    // Consult system properties to get project/instance
-    String projectId = "xxx";
-    String instanceId = "yyy";
     enableOpenCensusObservability();
 
-    doHelloWorld(projectId, instanceId);
+    doHelloWorld(PROJECT_ID, INSTANCE_ID);
 
     Thread.sleep(30000);
   }
@@ -154,8 +154,7 @@ public class HelloWorld {
     Metrics.getExportComponent().getMetricProducerManager().add(
       new DropWizardMetrics(Collections.singletonList(registry.getRegistry())));
 
-    StackdriverStatsExporter.createAndRegister(StackdriverStatsConfiguration.builder().setExportInterval(
-      Duration.create(10, 0)).build());
+    StackdriverStatsExporter.createAndRegister();
 
   }
 
