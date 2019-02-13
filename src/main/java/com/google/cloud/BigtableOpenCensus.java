@@ -31,9 +31,9 @@ import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.util.Bytes;
 
 public class BigtableOpenCensus implements AutoCloseable {
-  private static final String PROJECT_ID = "xxx";
-  private static final String INSTANCE_ID = "yyy";
-  private static final byte[] TABLE_NAME = Bytes.toBytes("Hello-Bigtable6");
+  private static final String PROJECT_ID = System.getProperty("PROJECT_ID", "my-project-id");
+  private static final String INSTANCE_ID = System.getProperty( "INSTANCE_ID", "my-bigtable-instance-id");
+  private static final byte[] TABLE_NAME = Bytes.toBytes("Hello-Bigtable8");
   private static final byte[] COLUMN_FAMILY_NAME = Bytes.toBytes("cf1");
   private static final byte[] COLUMN_NAME = Bytes.toBytes("greeting");
   private static final String[] GREETINGS = {
@@ -64,6 +64,7 @@ public class BigtableOpenCensus implements AutoCloseable {
       // Now for the application code
 
       HTableDescriptor descriptor = new HTableDescriptor(TableName.valueOf(TABLE_NAME));
+
       // Create the table
       Table table = boc.createTable(descriptor);
 
