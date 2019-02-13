@@ -1,17 +1,23 @@
 package com.google.cloud;
 
 import com.google.cloud.bigtable.hbase.BigtableConfiguration;
+import com.google.cloud.bigtable.metrics.BigtableClientMetrics;
+import com.google.cloud.bigtable.metrics.DropwizardMetricRegistry;
 import io.opencensus.common.Scope;
+import io.opencensus.contrib.dropwizard.DropWizardMetrics;
 import io.opencensus.contrib.grpc.metrics.RpcViews;
-import io.opencensus.exporter.stats.stackdriver.StackdriverStatsConfiguration;
 import io.opencensus.exporter.stats.stackdriver.StackdriverStatsExporter;
 import io.opencensus.exporter.trace.stackdriver.StackdriverTraceConfiguration;
 import io.opencensus.exporter.trace.stackdriver.StackdriverTraceExporter;
+import io.opencensus.metrics.Metrics;
+import io.opencensus.trace.Span;
 import io.opencensus.trace.Tracer;
 import io.opencensus.trace.Tracing;
 import io.opencensus.trace.config.TraceConfig;
 import io.opencensus.trace.samplers.Samplers;
 import java.io.IOException;
+import java.util.Collections;
+import java.util.Random;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableName;
@@ -25,9 +31,9 @@ import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.util.Bytes;
 
 public class BigtableOpenCensus implements AutoCloseable {
-  private static final String PROJECT_ID = "xxxx";
-  private static final String INSTANCE_ID = "yyyy";
-  private static final byte[] TABLE_NAME = Bytes.toBytes("Hello-Bigtable2");
+  private static final String PROJECT_ID = "xxx";
+  private static final String INSTANCE_ID = "yyy";
+  private static final byte[] TABLE_NAME = Bytes.toBytes("Hello-Bigtable6");
   private static final byte[] COLUMN_FAMILY_NAME = Bytes.toBytes("cf1");
   private static final byte[] COLUMN_NAME = Bytes.toBytes("greeting");
   private static final String[] GREETINGS = {
@@ -56,23 +62,23 @@ public class BigtableOpenCensus implements AutoCloseable {
     // Create the Bigtable connection
     try (BigtableOpenCensus boc = new BigtableOpenCensus(PROJECT_ID, INSTANCE_ID)) {
       // Now for the application code
-      try (Scope ss = tracer.spanBuilder("opencensus.Bigtable.Tutorial").startScopedSpan()) {
-        HTableDescriptor descriptor = new HTableDescriptor(TableName.valueOf(TABLE_NAME));
 
-        // Create the table
-        Table table = boc.createTable(descriptor);
+      HTableDescriptor descriptor = new HTableDescriptor(TableName.valueOf(TABLE_NAME));
+      // Create the table
+      Table table = boc.createTable(descriptor);
 
-        // Write some data to the table
-        boc.writeRows(table, GREETINGS);
-
-        // Read the written rows
-        boc.readRows(table);
-
-        // Finally cleanup by deleting the created table
-        boc.deleteTable(table);
-
-        Thread.sleep(65000);
+      for(int i = 0; i < 100; i++) {
+        try (Scope ss = tracer.spanBuilder("opencensus.Bigtable.Tutorial").startScopedSpan()) {
+          // Write some data to the table
+          boc.writeRows(table, GREETINGS[i % 3]);
+          // Read the written rows
+          boc.readRows(table);
+        }
       }
+
+      // Finally cleanup by deleting the created table
+      boc.deleteTable(table);
+      Thread.sleep(60000);
     } catch (Exception e) {
       System.err.println("Exception while running BigtableDropwizard: " + e.getMessage());
       e.printStackTrace();
@@ -89,16 +95,18 @@ public class BigtableOpenCensus implements AutoCloseable {
     }
   }
 
-  private void writeRows(Table table, String[] rows) throws IOException {
+  private void writeRows(Table table, String row) throws IOException, InterruptedException {
     try (Scope ss = tracer.spanBuilder("WriteRows").startScopedSpan()) {
       System.out.println("Write rows to the table");
-      for (int i = 0; i < 10; i++) {
-        String rowKey = "greeting" + i;
+      String rowKey = "greeting" + row;
+      Put put = new Put(Bytes.toBytes(rowKey));
+      put.addColumn(COLUMN_FAMILY_NAME, COLUMN_NAME, Bytes.toBytes(row));
 
-        Put put = new Put(Bytes.toBytes(rowKey));
-        put.addColumn(COLUMN_FAMILY_NAME, COLUMN_NAME, Bytes.toBytes(GREETINGS[i % 3]));
-        table.put(put);
-      }
+      Span span = tracer.getCurrentSpan();
+      randomSleep();
+      span.addAnnotation("Preprocessing read operation...");
+      randomSleep();
+      table.put(put);
     }
   }
 
@@ -121,6 +129,7 @@ public class BigtableOpenCensus implements AutoCloseable {
         System.out.println('\t' + Bytes.toString(valueBytes));
       }
     }
+    randomSleep();
   }
 
   private void enableOpenCensusObservability() throws IOException {
@@ -128,10 +137,6 @@ public class BigtableOpenCensus implements AutoCloseable {
     // Create and register the Stackdriver Tracing exporter
     StackdriverTraceExporter.createAndRegister(
       StackdriverTraceConfiguration.builder().setProjectId(PROJECT_ID).build());
-
-    // Create and register the Stackdriver Monitoring/Metrics exporter
-    StackdriverStatsExporter.createAndRegister(
-      StackdriverStatsConfiguration.builder().setProjectId(PROJECT_ID).build());
 
     // Register all the gRPC views
     RpcViews.registerAllGrpcViews();
@@ -141,6 +146,20 @@ public class BigtableOpenCensus implements AutoCloseable {
     traceConfig.updateActiveTraceParams(
       traceConfig.getActiveTraceParams().toBuilder().setSampler(Samplers.alwaysSample()).build());
     // End: enable observability with OpenCensus
+
+
+    // [ENABLE METRICS]
+    DropwizardMetricRegistry registry = new DropwizardMetricRegistry();
+    BigtableClientMetrics.setMetricRegistry(registry);
+
+    Metrics.getExportComponent().getMetricProducerManager().add(
+      new DropWizardMetrics(Collections.singletonList(registry.getRegistry())));
+
+    StackdriverStatsExporter.createAndRegister();
+  }
+
+  private void randomSleep() throws InterruptedException {
+    Thread.sleep(1000 * new Random().nextInt(15));
   }
 }
 

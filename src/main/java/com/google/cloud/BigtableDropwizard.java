@@ -29,8 +29,8 @@ import org.apache.hadoop.hbase.util.Bytes;
  * and performs some basic operations.
  */
 public class BigtableDropwizard {
-  private static final String PROJECT_ID = "xxxx";
-  private static final String INSTANCE_ID = "yyyy";
+  private static final String PROJECT_ID = "xxx";
+  private static final String INSTANCE_ID = "yyy";
   // Refer to table metadata names by byte array in the HBase API
   private static final byte[] TABLE_NAME = Bytes.toBytes("Hello-Bigtable");
   private static final byte[] COLUMN_FAMILY_NAME = Bytes.toBytes("cf1");
