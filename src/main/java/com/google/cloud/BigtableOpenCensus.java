@@ -86,11 +86,6 @@ public class BigtableOpenCensus implements AutoCloseable {
     this.enableOpenCensusObservability();
   }
 
-  @Override
-  public void close() throws IOException {
-    this.connection.close();
-  }
-
   public static void main(String... args) {
     // Create the Bigtable connection
     try (BigtableOpenCensus boc = new BigtableOpenCensus(PROJECT_ID, INSTANCE_ID)) {
@@ -222,7 +217,7 @@ public class BigtableOpenCensus implements AutoCloseable {
 
     // Define the views
     View latenciesView = View.create(
-      Name.create("bigtable/table/latency"),
+      Name.create("my.application.org/bigtable/latency"),
       "The distribution of latencies",
       M_LATENCY_MS,
       latencyDistribution,
@@ -231,7 +226,7 @@ public class BigtableOpenCensus implements AutoCloseable {
 
     // Define the views
     View operationsView = View.create(
-      Name.create("bigtable/table/operations"),
+      Name.create("my.application.org/bigtable/operations"),
       "The number of operations",
       M_LATENCY_MS,
       countAggregation,
@@ -247,7 +242,12 @@ public class BigtableOpenCensus implements AutoCloseable {
   }
 
   private static double sinceInMilliseconds(long startTimeNs) {
-    return (new Double(System.nanoTime() - startTimeNs))/1e6;
+    return (double) (System.nanoTime() - startTimeNs) /1e6;
+  }
+
+  @Override
+  public void close() throws IOException {
+    this.connection.close();
   }
 }
 
