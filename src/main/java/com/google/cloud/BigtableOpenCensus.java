@@ -10,13 +10,29 @@ import io.opencensus.exporter.stats.stackdriver.StackdriverStatsExporter;
 import io.opencensus.exporter.trace.stackdriver.StackdriverTraceConfiguration;
 import io.opencensus.exporter.trace.stackdriver.StackdriverTraceExporter;
 import io.opencensus.metrics.Metrics;
+import io.opencensus.stats.Aggregation;
+import io.opencensus.stats.Aggregation.Distribution;
+import io.opencensus.stats.BucketBoundaries;
+import io.opencensus.stats.Measure.MeasureDouble;
+import io.opencensus.stats.Stats;
+import io.opencensus.stats.StatsRecorder;
+import io.opencensus.stats.View;
+import io.opencensus.stats.View.Name;
+import io.opencensus.stats.ViewManager;
+import io.opencensus.tags.TagContext;
+import io.opencensus.tags.TagKey;
+import io.opencensus.tags.TagValue;
+import io.opencensus.tags.Tagger;
+import io.opencensus.tags.Tags;
 import io.opencensus.trace.Span;
 import io.opencensus.trace.Tracer;
 import io.opencensus.trace.Tracing;
 import io.opencensus.trace.config.TraceConfig;
 import io.opencensus.trace.samplers.Samplers;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Random;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HTableDescriptor;
@@ -41,6 +57,23 @@ public class BigtableOpenCensus implements AutoCloseable {
   };
   private static final Tracer tracer = Tracing.getTracer();
 
+  // Create the view manager
+  private static final ViewManager vmgr = Stats.getViewManager();
+  private static final StatsRecorder statsRecorder = Stats.getStatsRecorder();
+
+  private static final Tagger tagger = Tags.getTagger();
+
+  // The latency in milliseconds
+  private static final MeasureDouble M_LATENCY_MS = MeasureDouble.create(
+    "bigtable/latency", "The latency in milliseconds", "ms");
+
+  private static final TagKey KEY_TABLE_NAME = TagKey.create("table");
+  private static final TagKey KEY_METHOD = TagKey.create("method");
+
+  private static final TagValue VALUE_TABLE_NAME = TagValue.create(new String(TABLE_NAME));
+  private static final TagValue VALUE_WRITE = TagValue.create("write");
+  private static final TagValue VALUE_READ = TagValue.create("read");
+
   private Admin admin;
   private Connection connection;
 
@@ -51,11 +84,6 @@ public class BigtableOpenCensus implements AutoCloseable {
 
     // Enable observability with OpenCensus
     this.enableOpenCensusObservability();
-  }
-
-  @Override
-  public void close() throws IOException {
-    this.connection.close();
   }
 
   public static void main(String... args) {
@@ -98,6 +126,8 @@ public class BigtableOpenCensus implements AutoCloseable {
 
   private void writeRows(Table table, String row) throws IOException, InterruptedException {
     try (Scope ss = tracer.spanBuilder("WriteRows").startScopedSpan()) {
+      long startTimeNs = System.nanoTime();
+
       System.out.println("Write rows to the table");
       String rowKey = "greeting" + row;
       Put put = new Put(Bytes.toBytes(rowKey));
@@ -108,6 +138,10 @@ public class BigtableOpenCensus implements AutoCloseable {
       span.addAnnotation("Preprocessing read operation...");
       randomSleep();
       table.put(put);
+
+      TagContext tags = tagger.emptyBuilder().put(KEY_TABLE_NAME, VALUE_TABLE_NAME).
+        put(KEY_METHOD, VALUE_WRITE).build();
+      statsRecorder.newMeasureMap().put(M_LATENCY_MS, sinceInMilliseconds(startTimeNs)).record(tags);
     }
   }
 
@@ -121,23 +155,34 @@ public class BigtableOpenCensus implements AutoCloseable {
 
   private void readRows(Table table) throws Exception {
     try (Scope ss = tracer.spanBuilder("ReadRows").startScopedSpan()) {
+      long startTimeNs = System.nanoTime();
       System.out.println("Scan for all greetings:");
       Scan scan = new Scan();
 
+      randomSleep();
       ResultScanner scanner = table.getScanner(scan);
       for (Result row : scanner) {
         byte[] valueBytes = row.getValue(COLUMN_FAMILY_NAME, COLUMN_NAME);
         System.out.println('\t' + Bytes.toString(valueBytes));
       }
+
+      TagContext tags = tagger.emptyBuilder().put(KEY_TABLE_NAME, VALUE_TABLE_NAME).
+        put(KEY_METHOD, VALUE_READ).build();
+      statsRecorder.newMeasureMap().put(M_LATENCY_MS, sinceInMilliseconds(startTimeNs)).record(tags);
     }
-    randomSleep();
   }
 
   private void enableOpenCensusObservability() throws IOException {
+
+    // Register the views
+    registerAllViews();
+
     // Start: enable observability with OpenCensus tracing and metrics
     // Create and register the Stackdriver Tracing exporter
     StackdriverTraceExporter.createAndRegister(
       StackdriverTraceConfiguration.builder().setProjectId(PROJECT_ID).build());
+
+    StackdriverStatsExporter.createAndRegister();
 
     // Register all the gRPC views
     RpcViews.registerAllGrpcViews();
@@ -148,19 +193,61 @@ public class BigtableOpenCensus implements AutoCloseable {
       traceConfig.getActiveTraceParams().toBuilder().setSampler(Samplers.alwaysSample()).build());
     // End: enable observability with OpenCensus
 
-
-    // [ENABLE METRICS]
+    // Export DropWizard Metrics to OpenCensus data model
     DropwizardMetricRegistry registry = new DropwizardMetricRegistry();
     BigtableClientMetrics.setMetricRegistry(registry);
 
     Metrics.getExportComponent().getMetricProducerManager().add(
       new DropWizardMetrics(Collections.singletonList(registry.getRegistry())));
+  }
 
-    StackdriverStatsExporter.createAndRegister();
+  private static void registerAllViews() {
+    // Defining the distribution aggregations
+    Aggregation latencyDistribution = Distribution.create(BucketBoundaries.create(
+      Arrays.asList(
+        // [>=0ms, >=25ms, >=50ms, >=75ms, >=100ms, >=200ms, >=400ms, >=600ms, >=800ms, >=1s, >=2s, >=4s, >=6s]
+        0.0, 25.0, 50.0, 75.0, 100.0, 200.0, 400.0, 600.0, 800.0, 1000.0, 2000.0, 4000.0, 6000.0)
+    ));
+
+    // Define the count aggregation
+    Aggregation countAggregation = Aggregation.Count.create();
+
+    // So tagKeys
+    List tagKeys = Arrays.asList(KEY_TABLE_NAME, KEY_METHOD);
+
+    // Define the views
+    View latenciesView = View.create(
+      Name.create("my.application.org/bigtable/latency"),
+      "The distribution of latencies",
+      M_LATENCY_MS,
+      latencyDistribution,
+      tagKeys);
+
+
+    // Define the views
+    View operationsView = View.create(
+      Name.create("my.application.org/bigtable/operations"),
+      "The number of operations",
+      M_LATENCY_MS,
+      countAggregation,
+      tagKeys);
+
+    // Then finally register the views
+    vmgr.registerView(latenciesView);
+    vmgr.registerView(operationsView);
   }
 
   private void randomSleep() throws InterruptedException {
     Thread.sleep(1000 * new Random().nextInt(15));
+  }
+
+  private static double sinceInMilliseconds(long startTimeNs) {
+    return (double) (System.nanoTime() - startTimeNs) /1e6;
+  }
+
+  @Override
+  public void close() throws IOException {
+    this.connection.close();
   }
 }
 
